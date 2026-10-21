@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Booking Service — Saga Architecture</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #11182b;
+    --panel2: #172039;
+    --text: #e8edf7;
+    --muted: #9aa7bd;
+    --line: #52617d;
+    --blue: #5aa9ff;
+    --green: #5bd39a;
+    --orange: #ffb86b;
+    --purple: #b88cff;
+    --red: #ff7373;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  h1 { margin: 0 0 8px; font-size: 30px; }
+  h2 { margin: 0 0 16px; font-size: 21px; }
+  p { color: var(--muted); line-height: 1.55; }
+  .subtitle { margin-bottom: 28px; }
+  .section {
+    background: var(--panel);
+    border: 1px solid #25304a;
+    border-radius: 16px;
+    padding: 22px;
+    margin-bottom: 24px;
+  }
+  .architecture {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr 1fr;
+    gap: 18px;
+    align-items: center;
+  }
+  .box {
+    background: var(--panel2);
+    border: 1px solid #34425f;
+    border-radius: 13px;
+    padding: 17px;
+    min-height: 100px;
+  }
+  .box strong { display:block; margin-bottom: 7px; }
+  .box small { color: var(--muted); line-height: 1.5; }
+  .blue { border-color: var(--blue); }
+  .green { border-color: var(--green); }
+  .orange { border-color: var(--orange); }
+  .purple { border-color: var(--purple); }
+  .red { border-color: var(--red); }
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .arrow { color: var(--blue); font-size: 24px; }
+  .saga-flow {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    align-items: center;
+  }
+  .step {
+    background: var(--panel2);
+    border: 1px solid #34425f;
+    border-radius: 12px;
+    padding: 13px 9px;
+    text-align: center;
+    min-height: 104px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+  .step b { font-size: 14px; margin-bottom: 7px; }
+  .step span { font-size: 12px; color: var(--muted); line-height:1.4; }
+  .step-arrow { text-align:center; color:var(--blue); font-size:20px; }
+  .tree {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    white-space: pre;
+    overflow-x: auto;
+    background: #080d19;
+    border: 1px solid #27334d;
+    border-radius: 12px;
+    padding: 20px;
+    color: #cbd6e8;
+    line-height: 1.6;
+  }
+  .tree .folder { color: var(--blue); }
+  .tree .important { color: var(--green); }
+  .tree .infra { color: var(--orange); }
+  .tree .entry { color: var(--purple); }
+  .relationships {
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .rel {
+    border-left: 3px solid var(--blue);
+    padding: 12px 14px;
+    background: var(--panel2);
+    border-radius: 8px;
+  }
+  .rel b { display:block; margin-bottom: 6px; }
+  .legend {
+    display:flex; flex-wrap:wrap; gap:15px;
+    color:var(--muted); font-size:13px;
+  }
+  .dot {
+    display:inline-block; width:10px; height:10px;
+    border-radius:50%; margin-right:6px;
+  }
+  .note {
+    background: #101a2f;
+    border-left: 4px solid var(--green);
+    padding: 14px 16px;
+    border-radius: 8px;
+    color: #cbd6e8;
+    line-height:1.55;
+  }
+  @media (max-width: 900px) {
+    .architecture, .relationships { grid-template-columns: 1fr; }
+    .saga-flow { grid-template-columns: 1fr; }
+    .step-arrow { transform: rotate(90deg); }
+    body { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Booking Service — Production Saga Architecture</h1>
+<p class="subtitle">
+  Mental model for the modular structure: HTTP/API → Booking domain → transactional Outbox →
+  RabbitMQ → other Saga participants, with persistence isolated behind repository interfaces.
+</p>
+
+<div class="section">
+  <h2>1. High-level architecture</h2>
+  <div class="architecture">
+    <div class="box blue">
+      <strong>HTTP / API</strong>
+      <small>internal/http/handler.go<br><br>Receives requests and delegates to the application/domain service.</small>
+    </div>
+
+    <div class="flow">
+      <span class="arrow">→</span>
+      <div class="box green">
+        <strong>Booking Service</strong>
+        <small>internal/booking/<br><br>Owns Booking and its business operation.</small>
+      </div>
+      <span class="arrow">→</span>
+    </div>
+
+    <div class="box orange">
+      <strong>SQLite</strong>
+      <small>internal/repository/sqlite/<br><br>Persists Booking + Outbox in one local transaction.</small>
+    </div>
+  </div>
+
+  <br>
+
+  <div class="architecture">
+    <div class="box purple">
+      <strong>Saga / Events</strong>
+      <small>internal/saga/<br><br>Defines messages that represent state transitions and compensation signals.</small>
+    </div>
+
+    <div class="flow">
+      <span class="arrow">→</span>
+      <div class="box green">
+        <strong>Transactional Outbox</strong>
+        <small>internal/outbox/<br><br>Stores the event atomically with the Booking transaction, then publishes asynchronously.</small>
+      </div>
+      <span class="arrow">→</span>
+    </div>
+
+    <div class="box red">
+      <strong>RabbitMQ</strong>
+      <small>internal/messaging/<br><br>Transport layer. The Outbox publisher sends events here.</small>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>2. Booking creation — the important production flow</h2>
+  <div class="saga-flow">
+    <div class="step blue"><b>1. POST /book</b><span>HTTP handler receives BookingRequest</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step green"><b>2. Create Booking</b><span>Domain/service creates RESERVED booking</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step orange"><b>3. DB Transaction</b><span>Save Booking + Outbox Event</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step purple"><b>4. Commit</b><span>Both records become durable together</span></div>
+  </div>
+
+  <br>
+
+  <div class="saga-flow">
+    <div class="step purple"><b>5. Publisher</b><span>Background worker finds PENDING events</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step red"><b>6. RabbitMQ</b><span>Publishes BookingCreatedEvent</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step green"><b>7. Saga continues</b><span>Payment / other services react</span></div>
+  </div>
+
+  <div class="note" style="margin-top:18px;">
+    <b>Key idea:</b> the HTTP request does not need RabbitMQ to be available in order to
+    durably record the booking and the intention to publish an event. If RabbitMQ is temporarily
+    unavailable, the Outbox event remains PENDING and can be retried.
+  </div>
+</div>
+
+<div class="section">
+  <h2>3. File tree — responsibility map</h2>
+  <div class="tree"><span class="entry">booking-service/</span>
+│
+├── <span class="entry">cmd/</span>
+│   └── <span class="entry">booking/</span>
+│       └── main.go                 ← composition root / dependency wiring
+│
+├── <span class="folder">internal/</span>
+│   │
+│   ├── <span class="important">booking/</span>                 ← BOOKING DOMAIN / APPLICATION
+│   │   ├── domain.go               ← Booking, BookingRequest
+│   │   ├── service.go              ← use case + transaction orchestration
+│   │   └── repository.go           ← persistence abstraction
+│   │
+│   ├── <span class="important">saga/</span>                    ← SAGA CONTRACTS
+│   │   ├── booking_saga.go         ← saga orchestration / state transitions
+│   │   └── events.go               ← BookingCreated, PaymentFailed, ...
+│   │
+│   ├── <span class="important">outbox/</span>                  ← TRANSACTIONAL OUTBOX
+│   │   ├── event.go                ← Outbox event model
+│   │   ├── repository.go           ← Outbox persistence abstraction
+│   │   └── publisher.go            ← background publishing/retry loop
+│   │
+│   ├── <span class="infra">messaging/</span>               ← MESSAGE TRANSPORT
+│   │   └── rabbitmq.go             ← RabbitMQ implementation
+│   │
+│   ├── <span class="infra">repository/</span>              ← INFRASTRUCTURE IMPLEMENTATIONS
+│   │   └── sqlite/
+│   │       ├── booking_repository.go
+│   │       └── outbox_repository.go
+│   │
+│   └── <span class="entry">http/</span>                    ← DELIVERY / API ADAPTER
+│       └── handler.go
+│
+├── go.mod
+└── go.sum</div>
+</div>
+
+<div class="section">
+  <h2>4. Who depends on whom?</h2>
+  <div class="relationships">
+    <div class="rel">
+      <b>HTTP → Booking</b>
+      Handler knows the Booking service/use case.
+      HTTP should not know SQLite or RabbitMQ details.
+    </div>
+    <div class="rel">
+      <b>Booking → Repository</b>
+      Booking defines the persistence contract.
+      SQLite implements that contract.
+    </div>
+    <div class="rel">
+      <b>Booking → Outbox</b>
+      The booking transaction creates an Outbox event as part of the same DB transaction.
+    </div>
+    <div class="rel">
+      <b>Outbox → Messaging</b>
+      Publisher depends on a messaging interface, not directly on RabbitMQ behavior.
+    </div>
+    <div class="rel">
+      <b>Messaging → RabbitMQ</b>
+      RabbitMQ is an infrastructure/transport implementation.
+    </div>
+    <div class="rel">
+      <b>Saga → Events</b>
+      Saga defines the business workflow and the events used to communicate state changes.
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>5. The Saga mental model</h2>
+  <div class="architecture">
+    <div class="box green">
+      <strong>Booking Service</strong>
+      <small>Reserve booking<br>↓<br>BookingCreated</small>
+    </div>
+    <div class="flow"><span class="arrow">→</span></div>
+    <div class="box purple">
+      <strong>Payment Service</strong>
+      <small>Process payment<br>↓<br>PaymentSucceeded / PaymentFailed</small>
+    </div>
+  </div>
+  <br>
+  <div class="architecture">
+    <div class="box orange">
+      <strong>Success path</strong>
+      <small>Booking → Payment → Confirmation</small>
+    </div>
+    <div class="flow"><span class="arrow">↔</span></div>
+    <div class="box red">
+      <strong>Compensation path</strong>
+      <small>PaymentFailed → compensate Booking → CANCELLED</small>
+    </div>
+  </div>
+  <p>
+    The important distinction is that this is <b>not one distributed database transaction</b>.
+    Each service owns its local transaction. The Saga coordinates the overall business process
+    through events and compensating actions.
+  </p>
+</div>
+
+<div class="section">
+  <h2>6. Production concerns to add as we evolve</h2>
+  <div class="relationships">
+    <div class="rel"><b>Idempotency</b>Consumers must safely process the same event more than once.</div>
+    <div class="rel"><b>Retries</b>Transient messaging/database failures need controlled retry behavior.</div>
+    <div class="rel"><b>Dead-lettering</b>Poison messages should eventually be isolated for investigation.</div>
+    <div class="rel"><b>Correlation IDs</b>Trace one booking across HTTP, services, events and compensation.</div>
+    <div class="rel"><b>Outbox locking</b>Multiple publisher instances need safe claiming/processing semantics.</div>
+    <div class="rel"><b>State machine</b>Explicit Saga/Booking states prevent invalid transitions.</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Legend</h2>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--blue)"></i>Delivery/API</span>
+    <span><i class="dot" style="background:var(--green)"></i>Domain/Application</span>
+    <span><i class="dot" style="background:var(--orange)"></i>Persistence</span>
+    <span><i class="dot" style="background:var(--purple)"></i>Saga/Events</span>
+    <span><i class="dot" style="background:var(--red)"></i>Messaging/Failure path</span>
+  </div>
+</div>
+
+</body>
+</html>
