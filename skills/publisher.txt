@@ -1,0 +1,59 @@
+// internal/outbox/publisher.go
+package outbox
+
+import (
+	"context"
+	"log"
+	"time"
+)
+
+type Publisher struct {
+	repo     Repository
+	messaging MessagingPublisher // Interface defined locally or imported
+	ticker   *time.Ticker
+}
+
+// MessagingPublisher interface to decouple from RabbitMQ struct
+type MessagingPublisher interface {
+	Publish(queue string, body []byte) error
+}
+
+func NewPublisher(repo Repository, messaging MessagingPublisher) *Publisher {
+	return &Publisher{
+		repo:     repo,
+		messaging: messaging,
+		ticker:   time.NewTicker(1 * time.Second), // Poll every second
+	}
+}
+
+func (p *Publisher) Start(ctx context.Context) {
+	log.Println("Starting Outbox Publisher...")
+	for {
+		select {
+		case <-p.ticker.C:
+			events, err := p.repo.FetchPending(ctx)
+			if err != nil {
+				log.Printf("Error fetching pending events: %v\n", err)
+				continue
+			}
+
+			for _, event := range events {
+				err := p.messaging.Publish("booking_events", event.Payload)
+				if err != nil {
+					log.Printf("Failed to publish event %s: %v\n", event.ID, err)
+					continue // Will retry next tick
+				}
+
+				// If successfully published, mark as processed
+				err = p.repo.MarkProcessed(ctx, event.ID)
+				if err != nil {
+					log.Printf("Failed to mark event %s as processed: %v\n", event.ID, err)
+				}
+			}
+		case <-ctx.Done():
+			log.Println("Stopping Outbox Publisher")
+			p.ticker.Stop()
+			return
+		}
+	}
+}
